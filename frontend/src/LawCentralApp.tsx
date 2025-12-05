@@ -6,11 +6,12 @@ import CaseList from './components/cases/CaseList'
 import CaseDetail from './components/cases/CaseDetail'
 import Editor from './components/editor/Editor'
 import ResearchView from './components/research/ResearchView'
+import CitationsView from './components/citations/CitationsView'
 import CreateCaseModal, { type CreateCaseFormData } from './components/cases/CreateCaseModal'
 import { MOCK_CASES } from './mockData'
 import type { LegalCase, ResearchCase } from './types'
 
-type View = 'dashboard' | 'cases' | 'case-detail' | 'editor' | 'research'
+type View = 'dashboard' | 'cases' | 'case-detail' | 'editor' | 'research' | 'citations'
 
 const LawCentralApp = () => {
   const navigate = useNavigate()
@@ -77,6 +78,9 @@ const LawCentralApp = () => {
     } else if (view === 'research') {
       setActiveView('research')
       navigate('/research')
+    } else if (view === 'citations') {
+      setActiveView('citations')
+      navigate('/citations')
     } else if (view === 'case-detail') {
       setActiveView('case-detail')
       navigate('/case-detail')
@@ -127,6 +131,8 @@ const LawCentralApp = () => {
         )
       case 'research':
         return <ResearchView cases={cases} onAddToCase={handleAddCitationToCase} />
+      case 'citations':
+        return <CitationsView />
       default:
         return <Dashboard onNavigate={handleNavigate} onOpenCreate={() => setIsCreateModalOpen(true)} />
     }

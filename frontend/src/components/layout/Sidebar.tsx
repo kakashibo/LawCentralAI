@@ -1,4 +1,4 @@
-import { Briefcase, FileText, LayoutDashboard, BookOpen, Plus, Scale } from 'lucide-react'
+import { Briefcase, FileText, LayoutDashboard, BookOpen, Plus, Scale, Network } from 'lucide-react'
 
 interface SidebarProps {
   activeView: string
@@ -12,6 +12,7 @@ const Sidebar = ({ activeView, setActiveView, onOpenCreate }: SidebarProps) => {
     { id: 'cases', icon: Briefcase, label: 'Case Manager' },
     { id: 'editor', icon: FileText, label: 'Legal Editor' },
     { id: 'research', icon: BookOpen, label: 'Research Engine' },
+    { id: 'citations', icon: Network, label: 'Citation Graph' },
   ] as const
 
   return (
