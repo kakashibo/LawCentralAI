@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LawCentral AI - Database Infrastructure (RDS PostgreSQL)'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: lawcentral-ai
+    Description: Name of the project for resource naming
+
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [development, staging, production]
+    Description: Environment name
+
+  DatabaseName:
+    Type: String
+    Default: lawcentral
+    Description: Name of the database
+
+  DatabaseUsername:
+    Type: String
+    Default: lawcentral_admin
+    Description: Database master username
+
+  DatabasePassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 128
+    Description: Database master password (will be stored in Secrets Manager)
+
+  DatabaseInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues: [db.t4g.micro, db.t4g.small, db.t4g.medium]
+    Description: Database instance class (ARM-based for cost optimization)
+
+  DatabaseAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: Database allocated storage in GB
+
+Resources:
+  # Database Subnet Group
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${ProjectName}-${Environment}-db-subnet-group
+      DBSubnetGroupDescription: Subnet group for RDS database
+      SubnetIds: !Split
+        - ','
+        - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnets
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-db-subnet-group
+
+  # Database Parameter Group
+  DatabaseParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      DBParameterGroupName: !Sub ${ProjectName}-${Environment}-postgres-params
+      Description: Parameter group for PostgreSQL database
+      Family: postgres15
+      Parameters:
+        shared_preload_libraries: pg_stat_statements
+        log_statement: all
+        log_min_duration_statement: 1000
+        log_checkpoints: 1
+        log_connections: 1
+        log_disconnections: 1
+        log_lock_waits: 1
+        log_temp_files: 0
+        log_autovacuum_min_duration: 0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-postgres-params
+
+  # Database Secrets Manager
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${ProjectName}/${Environment}/database
+      Description: Database credentials for LawCentral AI
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${DatabaseUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-db-secret
+
+  # RDS Database Instance
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub ${ProjectName}-${Environment}-db
+      DBName: !Ref DatabaseName
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      Engine: postgres
+      EngineVersion: '15.4'
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !Ref DatabasePassword
+      AllocatedStorage: !Ref DatabaseAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-DatabaseSecurityGroup
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DBParameterGroupName: !Ref DatabaseParameterGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      MultiAZ: false  # Single AZ for cost optimization
+      PubliclyAccessible: false
+      DeletionProtection: true
+      EnablePerformanceInsights: false  # Disabled for cost optimization
+      MonitoringInterval: 0  # Disabled for cost optimization
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${Environment}-db
+
+  # Secret Target Attachment
+  DatabaseSecretTargetAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DatabaseSecret
+      TargetId: !Ref DatabaseInstance
+      TargetType: AWS::RDS::DBInstance
+
+  # Database Connection String Parameter
+  DatabaseConnectionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${ProjectName}/${Environment}/database/connection-string
+      Type: String
+      Value: !Sub 
+        - 'postgresql://${Username}:${Password}@${Endpoint}:5432/${DatabaseName}'
+        - Username: !Ref DatabaseUsername
+          Password: !Ref DatabasePassword
+          Endpoint: !GetAtt DatabaseInstance.Endpoint.Address
+          DatabaseName: !Ref DatabaseName
+      Description: Database connection string for LawCentral AI
+      Tags:
+        Name: !Sub ${ProjectName}-${Environment}-db-connection
+
+  # Database Host Parameter
+  DatabaseHostParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${ProjectName}/${Environment}/database/host
+      Type: String
+      Value: !GetAtt DatabaseInstance.Endpoint.Address
+      Description: Database host for LawCentral AI
+      Tags:
+        Name: !Sub ${ProjectName}-${Environment}-db-host
+
+  # Database Port Parameter
+  DatabasePortParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${ProjectName}/${Environment}/database/port
+      Type: String
+      Value: '5432'
+      Description: Database port for LawCentral AI
+      Tags:
+        Name: !Sub ${ProjectName}-${Environment}-db-port
+
+  # Database Name Parameter
+  DatabaseNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${ProjectName}/${Environment}/database/name
+      Type: String
+      Value: !Ref DatabaseName
+      Description: Database name for LawCentral AI
+      Tags:
+        Name: !Sub ${ProjectName}-${Environment}-db-name
+
+Outputs:
+  DatabaseEndpoint:
+    Description: RDS database endpoint
+    Value: !GetAtt DatabaseInstance.Endpoint.Address
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DatabaseEndpoint
+
+  DatabasePort:
+    Description: RDS database port
+    Value: !GetAtt DatabaseInstance.Endpoint.Port
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DatabasePort
+
+  DatabaseName:
+    Description: Database name
+    Value: !Ref DatabaseName
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DatabaseName
+
+  DatabaseSecretArn:
+    Description: Database secret ARN
+    Value: !Ref DatabaseSecret
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DatabaseSecretArn
+
+  DatabaseConnectionStringParameter:
+    Description: Database connection string parameter name
+    Value: !Ref DatabaseConnectionParameter
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DatabaseConnectionStringParameter
